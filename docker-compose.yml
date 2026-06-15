@@ -25,11 +25,12 @@ services:
       db:
         condition: service_healthy
 
-  worker:
+  dispatcher:
     build: .
-    command: python -m services.worker
+    command: python -m app.services.dispatcher
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      WORKER_COUNT: ${WORKER_COUNT}
       BATCH_SIZE: ${BATCH_SIZE}
       POLL_INTERVAL: ${POLL_INTERVAL}
     depends_on:

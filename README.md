@@ -1,26 +1,28 @@
-# Webhook Delivery System — Approach 2: Outbox Pattern
+# Webhook Delivery System — Approach 3: Dispatch
 
-Instead of delivering webhooks inline, write every event to a Postgres outbox table and return immediately. A background worker polls the table and handles delivery. Your API never blocks on a customer's endpoint.
+Instead of a single worker grinding through events one by one, a dispatcher fans work out to a pool of async workers. Each customer endpoint is pinned to a specific worker via consistent hashing — so deliveries to the same URL are always sequential, but different URLs are processed in parallel.
 
 ## Why this approach?
 
-The naive approach ties your API's availability to your customer's uptime. If their server is slow, yours is slow. If they're down, you lose the event.
+The outbox worker from Approach 2 is a single process. At 10M events/day (~115/sec), one worker can't keep up — especially when customer endpoints are slow. You need parallelism, but naive parallelism creates race conditions: two workers hitting the same customer simultaneously can cause out-of-order delivery and duplicate processing.
 
-The outbox pattern breaks that dependency. Your API writes to a local database — fast, reliable, under your control — and a separate worker handles the messy business of HTTP delivery. Events survive crashes because they're in Postgres before anyone tries to deliver them.
+The dispatcher solves this by assigning each target URL to exactly one worker, every time.
 
 ## Project Structure
 
 ```
-├── core/
-│   ├── config.py          # Environment-based configuration
-│   └── database.py        # SQLAlchemy engine and session
-├── models/
-│   └── event.py           # OutboxEvent SQLAlchemy model
-├── routers/
-│   └── webhooks.py        # API endpoints
-├── services/
-│   └── worker.py          # Background worker that polls and delivers
-├── main.py                # FastAPI app entry point
+├── app/
+│   ├── core/
+│   │   ├── config.py          # Environment-based configuration
+│   │   └── database.py        # SQLAlchemy engine and session
+│   ├── models/
+│   │   └── event.py           # OutboxEvent with assigned_worker tracking
+│   ├── routers/
+│   │   └── webhooks.py        # API endpoints
+│   ├── services/
+│   │   ├── dispatch.py        # Reads outbox, assigns events to workers
+│   │   └── worker.py          # Async worker pool with consistent hashing
+│   └── main.py                # FastAPI app entry point
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -31,14 +33,14 @@ The outbox pattern breaks that dependency. Your API writes to a local database �
 
 ## How it works
 
-1. Your backend sends a POST to `/webhooks/send` with an event type, payload, and customer URL
-2. The API writes the event to the `outbox_events` table in Postgres and returns `202 Accepted`
-3. A background worker polls the table every second using `SELECT ... FOR UPDATE SKIP LOCKED`
-4. The worker POSTs each event to the customer's URL
+1. Your backend sends a POST to `/webhooks/send` — event is written to the outbox table
+2. The dispatcher polls the outbox every second for pending events
+3. Each event is assigned to a worker using a SHA-256 hash of the `target_url`
+4. The worker POSTs the event to the customer's URL
 5. If the customer returns 200 → event marked as `delivered`
-6. If it fails → event marked as `failed` with the error
+6. If it fails → event marked as `failed`
 
-The API and the worker are separate processes. The database is the coordination point between them.
+Same URL always lands on the same worker. Different URLs fan out across the pool.
 
 ## Installation
 
@@ -65,7 +67,7 @@ uv pip install -r requirements.txt
 docker compose up --build
 ```
 
-This starts Postgres, the API, and the worker.
+This starts Postgres, the API, and the dispatcher with its worker pool.
 
 ### Without Docker
 
@@ -73,10 +75,10 @@ You need Postgres running locally. Then open two terminals:
 
 ```bash
 # Terminal 1: API
-uvicorn main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000
 
-# Terminal 2: Worker
-python -m services.worker
+# Terminal 2: Dispatcher + workers
+python -m app.services.dispatch
 ```
 
 ## Test
@@ -95,16 +97,16 @@ curl http://localhost:8000/webhooks/{event_id}
 
 API docs at: `http://localhost:8000/docs`
 
-## What this solves over Approach 1
+## What this solves over Approach 2
 
-- **Non-blocking** — API returns 202 immediately, never waits on the customer
-- **Persistent** — events are in Postgres before delivery is attempted, so crashes don't lose data
-- **Idempotent** — duplicate events are caught via `idempotency_key`
+- **Parallel delivery** — multiple workers process events simultaneously
+- **Per-customer ordering** — consistent hashing prevents race conditions
+- **Scalable** — add more workers via `WORKER_COUNT` env var
 
-## What's still wrong?
+## What's still missing
 
 - **No retries** — a failed event stays failed forever
-- **Single worker** — one process doing all deliveries is a bottleneck at scale
-- **No backoff** — if a customer is down, we fail immediately with no second chance
+- **No backoff** — if a customer is down, we don't wait and try again
+- **No dead letter queue** — permanently failed events have nowhere to go
 
-These problems are exactly what Approach 3 (Dispatch + Worker Pool) solves.
+These problems are exactly what Approach 4 (Retry + Exponential Backoff + DLQ) solves.

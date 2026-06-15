@@ -2,14 +2,14 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from core.database import Base
-
+from app.core.database import Base
 
 class EventStatus(str, enum.Enum):
     PENDING = "pending"
+    DISPATCHED = "dispatched"
     PROCESSING = "processing"
     DELIVERED = "delivered"
     FAILED = "failed"
@@ -25,6 +25,7 @@ class OutboxEvent(Base):
     status = Column(
         String(32), default=EventStatus.PENDING, nullable=False, index=True
     )
+    assigned_worker = Column(String(64), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

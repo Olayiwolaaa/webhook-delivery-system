@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from models.event import EventStatus, OutboxEvent
+from app.core.database import get_db
+from app.models.event import EventStatus, OutboxEvent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -68,3 +68,33 @@ def get_status(event_id: str, db: Session = Depends(get_db)):
         "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
         "last_error": row.last_error,
     }
+
+@router.get("/")
+def list_events(db: Session = Depends(get_db)):
+    events = db.query(OutboxEvent).order_by(OutboxEvent.created_at.desc()).all()
+    return [
+        {
+            "event_id": str(event.id),
+            "event_type": event.event_type,
+            "status": event.status,
+            "created_at": event.created_at.isoformat(),
+            "delivered_at": event.delivered_at.isoformat() if event.delivered_at else None,
+            "last_error": event.last_error,
+        }
+        for event in events
+    ]
+
+@router.delete("/{event_id}", status_code=204)
+def delete_event(event_id: str, db: Session = Depends(get_db)): 
+    row = db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
+    if not row:
+        raise HTTPException(404, "Event not found")
+    db.delete(row)
+    db.commit()
+    return
+
+@router.delete("/", status_code=204)
+def delete_all_events(db: Session = Depends(get_db)):
+    db.query(OutboxEvent).delete()
+    db.commit()
+    return
