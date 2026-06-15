@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from core.database import init_db
-from routers import webhooks
+from app.core.database import init_db
+from app.routers import webhooks
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy import select
 
-from core.config import BATCH_SIZE, POLL_INTERVAL
-from core.database import SessionLocal
-from models.event import EventStatus, OutboxEvent
+from app.core.config import BATCH_SIZE, POLL_INTERVAL
+from app.core.database import SessionLocal
+from app.models.event import EventStatus, OutboxEvent
 
 logging.basicConfig(
     level=logging.INFO,

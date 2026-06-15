@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from models.event import EventStatus, OutboxEvent
+from app.core.database import get_db
+from app.models.event import EventStatus, OutboxEvent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from core.database import Base
+from app.core.database import Base
 
 
 class EventStatus(str, enum.Enum):

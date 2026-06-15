@@ -107,4 +107,4 @@ API docs at: `http://localhost:8000/docs`
 - **Single worker** — one process doing all deliveries is a bottleneck at scale
 - **No backoff** — if a customer is down, we fail immediately with no second chance
 
-These problems are exactly what Approach 3 (Dispatch + Worker Pool) solves.
+These problems are exactly what Approach 3 ([Dispatch + Worker Pool](https://github.com/Olayiwolaaa/webhook-delivery-system/tree/dispatch)) solves.
