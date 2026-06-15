@@ -44,7 +44,7 @@ async def send_webhook(event: WebhookEvent):
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="Customer endpoint timed out")
         except httpx.RequestError as exc:
-            raise HTTPException(≈ç
+            raise HTTPException(
                 status_code=502, detail=f"Could not reach customer: {exc}"
             )
 
