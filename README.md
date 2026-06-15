@@ -1,32 +1,44 @@
-# Webhook Delivery System — Approach 1: Naive
+# Webhook Delivery System — Approach 2: Outbox Pattern
 
-The simplest possible webhook delivery: receive an event, immediately POST it to the customer's URL, wait for a response, and return the result.
+Instead of delivering webhooks inline, write every event to a Postgres outbox table and return immediately. A background worker polls the table and handles delivery. Your API never blocks on a customer's endpoint.
 
-## Why start here?
+## Why this approach?
 
-This approach exists to expose what breaks at scale. There's no queue, no persistence, no retries. If the customer's server is slow, your API blocks. If it's down, the event is lost forever. At 10M events/day (~115/sec), this falls apart fast — but understanding *why* it fails is the foundation for every approach that follows.
+The naive approach ties your API's availability to your customer's uptime. If their server is slow, yours is slow. If they're down, you lose the event.
+
+The outbox pattern breaks that dependency. Your API writes to a local database — fast, reliable, under your control — and a separate worker handles the messy business of HTTP delivery. Events survive crashes because they're in Postgres before anyone tries to deliver them.
 
 ## Project Structure
 
 ```
-├── main.py             # FastAPI app — single POST endpoint
-├── shared/
-│   ├── config.py       # Environment-based configuration
-│   └── database.py     # Postgres setup (unused in this approach)
+├── core/
+│   ├── config.py          # Environment-based configuration
+│   └── database.py        # SQLAlchemy engine and session
+├── models/
+│   └── event.py           # OutboxEvent SQLAlchemy model
+├── routers/
+│   └── webhooks.py        # API endpoints
+├── services/
+│   └── worker.py          # Background worker that polls and delivers
+├── main.py                # FastAPI app entry point
+├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
-├── .gitignore
 ├── .env.example
+├── .gitignore
 └── README.md
 ```
 
 ## How it works
 
 1. Your backend sends a POST to `/webhooks/send` with an event type, payload, and customer URL
-2. The server immediately forwards that payload to the customer's URL
-3. If the customer returns 200 → success
-4. If the customer is slow or down → your API caller gets an error
+2. The API writes the event to the `outbox_events` table in Postgres and returns `202 Accepted`
+3. A background worker polls the table every second using `SELECT ... FOR UPDATE SKIP LOCKED`
+4. The worker POSTs each event to the customer's URL
+5. If the customer returns 200 → event marked as `delivered`
+6. If it fails → event marked as `failed` with the error
 
-That's it. No safety net.
+The API and the worker are separate processes. The database is the coordination point between them.
 
 ## Installation
 
@@ -47,8 +59,24 @@ uv pip install -r requirements.txt
 
 ## Run
 
+### With Docker (recommended)
+
 ```bash
+docker compose up --build
+```
+
+This starts Postgres, the API, and the worker.
+
+### Without Docker
+
+You need Postgres running locally. Then open two terminals:
+
+```bash
+# Terminal 1: API
 uvicorn main:app --reload --port 8000
+
+# Terminal 2: Worker
+python -m services.worker
 ```
 
 ## Test
@@ -59,13 +87,24 @@ curl -X POST http://localhost:8000/webhooks/send \
   -d '{"event_type": "order.created", "payload": {"order_id": 123}, "target_url": "https://httpbin.org/post"}'
 ```
 
+Check delivery status:
+
+```bash
+curl http://localhost:8000/webhooks/{event_id}
+```
+
 API docs at: `http://localhost:8000/docs`
 
-## What's wrong with this approach?
+## What this solves over Approach 1
 
-- **Blocking** — your API waits for the customer to respond before replying to the caller
-- **No persistence** — if your server crashes mid-delivery, the event is gone
-- **No retries** — one failure and the event is lost
-- **No backpressure** — a slow customer slows down your entire API
+- **Non-blocking** — API returns 202 immediately, never waits on the customer
+- **Persistent** — events are in Postgres before delivery is attempted, so crashes don't lose data
+- **Idempotent** — duplicate events are caught via `idempotency_key`
 
-These problems are exactly what Approach 2 (Outbox Pattern) solves.
+## What's still wrong?
+
+- **No retries** — a failed event stays failed forever
+- **Single worker** — one process doing all deliveries is a bottleneck at scale
+- **No backoff** — if a customer is down, we fail immediately with no second chance
+
+These problems are exactly what Approach 3 (Dispatch + Worker Pool) solves.
