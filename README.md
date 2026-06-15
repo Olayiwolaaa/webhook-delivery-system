@@ -11,16 +11,17 @@ The outbox pattern breaks that dependency. Your API writes to a local database �
 ## Project Structure
 
 ```
-├── core/
-│   ├── config.py          # Environment-based configuration
-│   └── database.py        # SQLAlchemy engine and session
-├── models/
-│   └── event.py           # OutboxEvent SQLAlchemy model
-├── routers/
-│   └── webhooks.py        # API endpoints
-├── services/
-│   └── worker.py          # Background worker that polls and delivers
-├── main.py                # FastAPI app entry point
+├── app/
+│   ├── core/
+│   │   ├── config.py          # Environment-based configuration
+│   │   └── database.py        # SQLAlchemy engine and session
+│   ├── models/
+│   │   └── event.py           # OutboxEvent SQLAlchemy model
+│   ├── routers/
+│   │   └── webhooks.py        # API endpoints
+│   ├── services/
+│   │   └── worker.py          # Background worker that polls and delivers
+│   └── main.py                # FastAPI app entry point
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -73,10 +74,10 @@ You need Postgres running locally. Then open two terminals:
 
 ```bash
 # Terminal 1: API
-uvicorn main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000
 
 # Terminal 2: Worker
-python -m services.worker
+python -m app.services.worker
 ```
 
 ## Test
