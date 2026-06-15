@@ -1,7 +1,0 @@
-import os
-
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-)
-
-PERMANENT_ERROR_CODES = {400, 401, 403, 404, 405, 410, 422}

@@ -10,12 +10,8 @@ This approach exists to expose what breaks at scale. There's no queue, no persis
 
 ```
 ├── main.py             # FastAPI app — single POST endpoint
-├── shared/
-│   ├── config.py       # Environment-based configuration
-│   └── database.py     # Postgres setup (unused in this approach)
 ├── requirements.txt
 ├── .gitignore
-├── .env.example
 └── README.md
 ```
 
@@ -41,7 +37,6 @@ Or with uv:
 ```bash
 uv venv
 source .venv/bin/activate
-cp .env.example .env
 uv pip install -r requirements.txt
 ```
 
@@ -68,4 +63,4 @@ API docs at: `http://localhost:8000/docs`
 - **No retries** — one failure and the event is lost
 - **No backpressure** — a slow customer slows down your entire API
 
-These problems are exactly what Approach 2 (Outbox Pattern) solves.
+These problems are exactly what Approach 2 ── [Outbox Pattern](https://github.com/Olayiwolaaa/webhook-delivery-system/tree/outbox) solves.
