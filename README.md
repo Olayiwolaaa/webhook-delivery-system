@@ -22,7 +22,7 @@ This project walks through five approaches to solving that problem, each one fix
 
 Start at `naive` and work your way down. Each branch builds on the previous one, and each README explains what the approach solves and what it still gets wrong. The progression is designed so you understand *why* each piece of infrastructure exists before you see it introduced.
 
-### 1. [Naive](https://github.com/Olayiwolaaa/webhook-delivery-system/tree/naive)
+### 1. [Naive](https://github.com/Olayiwolaaa/webhook-delivery-system/tree/naive-approach)
 
 Receive an event, immediately POST it to the customer, block until you get a response. No persistence, no retries. This is the baseline — it shows you exactly what fails at scale.
 
@@ -58,6 +58,28 @@ Pick any branch and follow its README:
 git clone https://github.com/Olayiwolaaa/webhook-delivery-system.git
 cd webhook-delivery-system
 git checkout outbox  # or naive-approach, dispatch, retry, dlq-replay
+```
+
+### With pip
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### With uv
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+### With Docker (recommended for approaches 2–5)
+
+```bash
+cp .env.example .env
 docker compose up --build
 ```
 
