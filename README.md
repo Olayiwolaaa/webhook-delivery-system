@@ -15,6 +15,7 @@ This approach exists to expose what breaks at scale. There's no queue, no persis
 │   └── database.py     # Postgres setup (unused in this approach)
 ├── requirements.txt
 ├── .gitignore
+├── .env.example
 └── README.md
 ```
 
@@ -40,6 +41,7 @@ Or with uv:
 ```bash
 uv venv
 source .venv/bin/activate
+cp .env.example .env
 uv pip install -r requirements.txt
 ```
 
