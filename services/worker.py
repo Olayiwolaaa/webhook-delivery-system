@@ -1,10 +1,3 @@
-"""
-Outbox worker — polls the outbox table for pending events and delivers them.
-
-Run as a standalone process:
-    python -m approach_2_outbox.worker
-"""
-
 import logging
 import time
 from datetime import datetime, timezone
