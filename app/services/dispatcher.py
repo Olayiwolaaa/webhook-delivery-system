@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from app.core.config import BATCH_SIZE, POLL_INTERVAL, WORKER_COUNT
 from app.core.database import SessionLocal
 from app.models.event import EventStatus, OutboxEvent
-from app.services.worker import WorkerPool
+from app.services.worker_pool import WorkerPool
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s"
