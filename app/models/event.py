@@ -12,8 +12,8 @@ class EventStatus(str, enum.Enum):
     DISPATCHED = "dispatched"
     PROCESSING = "processing"
     DELIVERED = "delivered"
-    FAILED = "failed"
-
+    RETRYING = "retrying"
+    DEAD = "dead"
 
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
@@ -25,7 +25,11 @@ class OutboxEvent(Base):
     status = Column(
         String(32), default=EventStatus.PENDING, nullable=False, index=True
     )
+    retry_count = Column(Integer, default=0, nullable=False)
+    max_retries = Column(Integer, default=5, nullable=False)
+    next_retry_at = Column(DateTime(timezone=True), nullable=True)
     assigned_worker = Column(String(64), nullable=True)
+    last_http_status = Column(Integer, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -39,3 +43,20 @@ class OutboxEvent(Base):
     delivered_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
     idempotency_key = Column(String(256), unique=True, nullable=True, index=True)
+
+class DeadLetterEvent(Base):
+    __tablename__ = "dead_letter_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    original_event_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    event_type = Column(String(128), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    target_url = Column(String(2048), nullable=False)
+    failure_reason = Column(Text, nullable=False)
+    total_attempts = Column(Integer, default=0, nullable=False)
+    last_http_status = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

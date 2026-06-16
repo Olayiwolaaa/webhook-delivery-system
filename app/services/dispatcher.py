@@ -2,10 +2,12 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
+
 from app.core.config import BATCH_SIZE, POLL_INTERVAL, WORKER_COUNT
 from app.core.database import SessionLocal
 from app.models.event import EventStatus, OutboxEvent
-from app.services.worker import WorkerPool
+from app.services.worker_pool import WorkerPool
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s"
@@ -27,48 +29,62 @@ class Dispatcher:
             dispatched = await self._dispatch_batch()
             if dispatched == 0:
                 await asyncio.sleep(POLL_INTERVAL)
-
     async def _dispatch_batch(self) -> int:
+        work_items = await asyncio.to_thread(self._fetch_and_mark_batch)
+        if not work_items:
+            return 0
+
+        for worker_id, event_data in work_items:
+            await self.pool.enqueue(worker_id, event_data)
+
+        log.info("Dispatched %d events", len(work_items))
+        return len(work_items)
+
+    def _fetch_and_mark_batch(self):
         db = SessionLocal()
+        now = datetime.now(timezone.utc)
         try:
             rows = (
                 db.query(OutboxEvent)
-                .filter(OutboxEvent.status == EventStatus.PENDING)
+                .filter(
+                    or_(
+                        OutboxEvent.status == EventStatus.PENDING,
+                        (OutboxEvent.status == EventStatus.RETRYING)
+                        & (OutboxEvent.next_retry_at <= now),
+                    )
+                )
                 .order_by(OutboxEvent.created_at)
                 .limit(BATCH_SIZE)
                 .with_for_update(skip_locked=True)
                 .all()
             )
             if not rows:
-                return 0
+                return []
 
+            work_items = []
             for row in rows:
                 worker_id = self.pool.pick_worker(row.target_url)
                 row.status = EventStatus.DISPATCHED
                 row.assigned_worker = f"worker-{worker_id}"
                 row.updated_at = datetime.now(timezone.utc)
-
-                await self.pool.enqueue(
-                    worker_id,
-                    {
-                        "event_id": str(row.id),
-                        "event_type": row.event_type,
-                        "payload": row.payload,
-                        "target_url": row.target_url,
-                    },
-                )
+                work_items.append((worker_id, {
+                    "event_id": str(row.id),
+                    "event_type": row.event_type,
+                    "payload": row.payload,
+                    "target_url": row.target_url,
+                    "retry_count": row.retry_count,
+                    "max_retries": row.max_retries,
+                }))
 
             db.commit()
-            log.info("Dispatched %d events", len(rows))
-            return len(rows)
-
+            return work_items
         except Exception:
             db.rollback()
             log.exception("Dispatch batch failed")
-            return 0
+            return []
         finally:
             db.close()
-
+            
     def stop(self):
         self._running = False
         self.pool.stop()

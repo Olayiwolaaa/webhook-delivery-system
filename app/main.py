@@ -10,7 +10,7 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-app = FastAPI(title="Webhook Delivery System — Dispatch", lifespan=lifespan)
+app = FastAPI(title="Webhook Delivery System — Retry + Backoff", lifespan=lifespan)
 
 app.include_router(webhooks.router)
 

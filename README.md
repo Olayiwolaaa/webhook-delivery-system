@@ -1,28 +1,26 @@
-# Webhook Delivery System — Approach 3: Dispatch
+# Webhook Delivery System — Approach 4: Retry + Exponential Backoff + DLQ
 
-Instead of a single worker grinding through events one by one, a dispatcher fans work out to a pool of async workers. Each customer endpoint is pinned to a specific worker via consistent hashing — so deliveries to the same URL are always sequential, but different URLs are processed in parallel.
+Building on the dispatcher from Approach 3, this adds retry logic with exponential backoff and a dead letter queue. Failed deliveries are retried with increasing delays, and events that exhaust all retries are moved to a DLQ for investigation.
 
 ## Why this approach?
 
-The outbox worker from Approach 2 is a single process. At 10M events/day (~115/sec), one worker can't keep up — especially when customer endpoints are slow. You need parallelism, but naive parallelism creates race conditions: two workers hitting the same customer simultaneously can cause out-of-order delivery and duplicate processing.
-
-The dispatcher solves this by assigning each target URL to exactly one worker, every time.
+Approach 3 fans events across workers but treats every failure as final — one timeout and the event is dead. In reality, customer endpoints go down temporarily, deploy, or rate-limit. You need a system that retries with patience, backs off to avoid hammering struggling endpoints, and has a clear path for events that truly can't be delivered.
 
 ## Project Structure
 
 ```
 ├── app/
 │   ├── core/
-│   │   ├── config.py          # Environment-based configuration
-│   │   └── database.py        # SQLAlchemy engine and session
+│   │   ├── config.py            # Backoff, timeout, and retry configuration
+│   │   └── database.py          # SQLAlchemy engine and session
 │   ├── models/
-│   │   └── event.py           # OutboxEvent with assigned_worker tracking
+│   │   └── event.py             # OutboxEvent, DeadLetterEvent, EventStatus
 │   ├── routers/
-│   │   └── webhooks.py        # API endpoints
+│   │   └── webhooks.py          # API endpoints
 │   ├── services/
-│   │   ├── dispatch.py        # Reads outbox, assigns events to workers
-│   │   └── worker.py          # Async worker pool with consistent hashing
-│   └── main.py                # FastAPI app entry point
+│   │   ├── dispatcher.py        # Polls outbox, assigns events to workers
+│   │   └── worker_pool.py       # Async worker pool with retry + backoff
+│   └── main.py                  # FastAPI app entry point
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -34,13 +32,22 @@ The dispatcher solves this by assigning each target URL to exactly one worker, e
 ## How it works
 
 1. Your backend sends a POST to `/webhooks/send` — event is written to the outbox table
-2. The dispatcher polls the outbox every second for pending events
+2. The dispatcher polls the outbox for `PENDING` events and `RETRYING` events whose `next_retry_at` has passed
 3. Each event is assigned to a worker using a SHA-256 hash of the `target_url`
-4. The worker POSTs the event to the customer's URL
-5. If the customer returns 200 → event marked as `delivered`
-6. If it fails → event marked as `failed`
+4. The worker POSTs the event to the customer's URL with a per-attempt timeout
+5. On success (HTTP 200) → event marked as `DELIVERED`
+6. On permanent error (4xx) → event sent directly to the dead letter queue
+7. On transient failure (timeout, 5xx, network error) → event marked as `RETRYING` with a backoff delay
+8. If all retries are exhausted → event moved to the dead letter queue
 
-Same URL always lands on the same worker. Different URLs fan out across the pool.
+Same URL always lands on the same worker. Backoff increases exponentially per attempt.
+
+## Retry and backoff behavior
+
+- **Exponential backoff**: delay = `BACKOFF_BASE ^ attempt`, capped at `BACKOFF_MAX_SECONDS`
+- **Per-attempt timeout**: increases with each attempt (`INITIAL_TIMEOUT + attempt * 2`)
+- **Permanent errors**: HTTP status codes in `PERMANENT_ERROR_CODES` (e.g., 400, 401, 403, 404, 422) skip retries entirely
+- **Dead letter queue**: events that exhaust `max_retries` or hit permanent errors are stored in `dead_letter_events` with full failure context
 
 ## Installation
 
@@ -67,7 +74,7 @@ uv pip install -r requirements.txt
 docker compose up --build
 ```
 
-This starts Postgres, the API, and the dispatcher with its worker pool.
+This starts Postgres, runs migrations, then launches the API and dispatcher with its worker pool.
 
 ### Without Docker
 
@@ -78,7 +85,7 @@ You need Postgres running locally. Then open two terminals:
 uvicorn app.main:app --reload --port 8000
 
 # Terminal 2: Dispatcher + workers
-python -m app.services.dispatch
+python -m app.services.dispatcher
 ```
 
 ## Test
@@ -97,16 +104,10 @@ curl http://localhost:8000/webhooks/{event_id}
 
 API docs at: `http://localhost:8000/docs`
 
-## What this solves over Approach 2
+## What this solves over Approach 3
 
-- **Parallel delivery** — multiple workers process events simultaneously
-- **Per-customer ordering** — consistent hashing prevents race conditions
-- **Scalable** — add more workers via `WORKER_COUNT` env var
-
-## What's still missing
-
-- **No retries** — a failed event stays failed forever
-- **No backoff** — if a customer is down, we don't wait and try again
-- **No dead letter queue** — permanently failed events have nowhere to go
-
-These problems are exactly what Approach 4 (Retry + Exponential Backoff + DLQ) solves.
+- **Automatic retries** — transient failures are retried instead of abandoned
+- **Exponential backoff** — struggling endpoints aren't hammered with immediate retries
+- **Permanent error detection** — 4xx errors skip retries and go straight to the DLQ
+- **Dead letter queue** — permanently failed events are preserved with failure context for debugging
+- **Adaptive timeouts** — later attempts get more time, accommodating slow-recovering endpoints
