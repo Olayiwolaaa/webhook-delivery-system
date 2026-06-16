@@ -109,4 +109,4 @@ API docs at: `http://localhost:8000/docs`
 - **No backoff** — if a customer is down, we don't wait and try again
 - **No dead letter queue** — permanently failed events have nowhere to go
 
-These problems are exactly what Approach 4 (Retry + Exponential Backoff + DLQ) solves.
+These problems are exactly what Approach 4 ([Retry + Exponential Backoff + DLQ](https://github.com/Olayiwolaaa/webhook-delivery-system/tree/retry)) solves.
